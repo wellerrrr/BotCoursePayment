@@ -80,6 +80,7 @@ async def main():
     dp_main.include_router(callbacks.cb_handler)
     dp_main.include_router(db_callback_messages.db_cb_router)
     
+    logger.info("ЗАпускаем бот")
     await asyncio.gather(
         run_bot(dp_main, bot),
         run_bot(support_bot_dp, support_bot),
@@ -87,6 +88,7 @@ async def main():
 
 if __name__ == '__main__':
     try:
+        logger.info("ЗАпускаем бот")
         asyncio.run(main())
     except KeyboardInterrupt as e:
         print('Бот выключен!')
