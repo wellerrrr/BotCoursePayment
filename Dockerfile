@@ -7,7 +7,7 @@ WORKDIR /app
 # Копируем файлы проекта
 COPY . .
 
-RUN mkdir database
+RUN mkdir -p database && chmod 755 database
 
 # Устанавливаем зависимости, если есть requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
