@@ -16,6 +16,7 @@ import asyncio
 
 async def run_bot(dispatcher: Dispatcher, bot: Bot):
     try:
+        logger.info(f"Starting bot with token: [REDACTED]")
         await bot.delete_webhook(drop_pending_updates=True)
         await dispatcher.start_polling(bot)
     except Exception as e:
