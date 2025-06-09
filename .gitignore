@@ -2,6 +2,6 @@
 __pycache__/
 *.pyc
 venv/
-database/land_course.db
+land_course.db
 *.db
 course-bot.tar
