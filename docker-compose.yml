@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bot:
     build:
@@ -8,7 +6,9 @@ services:
     container_name: telegram_bot
     restart: unless-stopped
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - SUPPORT_BOT_TOKEN=${SUPPORT_BOT_TOKEN}
+      - ADMIN_IDS=${ADMIN_IDS}
     volumes:
       - .:/app
     healthcheck:
