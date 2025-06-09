@@ -7,9 +7,10 @@ WORKDIR /app
 # Копируем файлы проекта
 COPY . .
 
+# Создаем директорию для базы данных и задаем права
 RUN mkdir -p database && chmod 755 database
 
-# Устанавливаем зависимости, если есть requirements.txt
+# Устанавливаем зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Команда для запуска бота
