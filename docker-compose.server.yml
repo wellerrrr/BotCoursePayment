@@ -9,6 +9,8 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - SUPPORT_BOT_TOKEN=${SUPPORT_BOT_TOKEN}
       - ADMIN_IDS=${ADMIN_IDS}
+    volumes:
+      - ./database:/app/database
     healthcheck:
       test: ["CMD-SHELL", "ps aux | grep '[p]ython main.py' || exit 1"]
       interval: 30s
