@@ -5,3 +5,4 @@ venv/
 land_course.db
 *.db
 course-bot.tar
+database/land_course.db
