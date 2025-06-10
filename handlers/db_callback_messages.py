@@ -13,7 +13,7 @@ class EditMessage(StatesGroup):
 
 @db_cb_router.message(lambda message: message.text and message.text.startswith('/'))
 async def handle_commands(message: Message):
-    command = message.text.lstrip('/').split()[0]  # Извлекаем команду без "/"
+    command = message.text.lstrip('/').split()[0]
     logging.debug(f"Получена команда: {command}")
     msg = get_message_by_title(command)
     if msg:
