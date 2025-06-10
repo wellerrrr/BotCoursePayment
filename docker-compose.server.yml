@@ -11,6 +11,7 @@ services:
       - ADMIN_IDS=${ADMIN_IDS}
     volumes:
       - ./database:/app/database
+      - /database/land_course.db:/home/user/BotCoursePayment/land_course.db
     env_file:
       - .env
     healthcheck:

@@ -1,10 +1,14 @@
 .env
 __pycache__/
 *.pyc
-venv/
-land_course.db
+.venv
 *.db
+*.sqlite
+database/
 course-bot.tar
+<<<<<<< HEAD
 database/land_course.db
-database/land_course.db
+*.swp 
+>>>>>>> 04fbdd6b0836a7c26138af4a205d2b8ab0aac65a
+venv/
 database/land_course.db
