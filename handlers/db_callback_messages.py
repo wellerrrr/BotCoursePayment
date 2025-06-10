@@ -20,12 +20,6 @@ async def handle_commands(message: Message):
         await message.answer(msg[2])
     else:
         await message.answer(f"Сообщение для команды /{command} не найдено в базе.")
-    # Для админов добавляем инлайн-кнопку "Редактировать сообщение"
-    if is_admin(message.from_user.id):
-        edit_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Редактировать сообщение", callback_data="edit_bot_message")]
-        ])
-        await message.answer("Админ-панель:", reply_markup=edit_keyboard)
 
 @db_cb_router.callback_query(lambda c: c.data == "edit_bot_message" and is_admin(c.from_user.id))
 async def edit_choosen_message(callback: CallbackQuery):
