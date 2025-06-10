@@ -1,7 +1,8 @@
 .env
 __pycache__/
 *.pyc
-venv/
-database/land_course.db
+.venv
 *.db
+*.sqlite
+database/
 course-bot.tar
