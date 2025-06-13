@@ -9,6 +9,3 @@ course-bot.tar
 database/land_course.db
 *.swp 
 venv/
-database/land_course.db
-
-database/land_course.db

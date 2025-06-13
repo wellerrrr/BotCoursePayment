@@ -49,7 +49,7 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
         prices = [LabeledPrice(label="Курс покупки и продажи земли", amount=990000)]
         await bot.send_invoice(
         chat_id=callback.message.chat.id,
-        title="Тестовый платеж",
+        title="Курс покупки-продажи земли",
         description="""После оплаты вы попадаете в закрытый канал.
 
 Здесь каждый шаг превращен в понятную инструкцию, подкрепленную полезными рекомендациями. Мы также включили шаблоны документов для вашего удобства""",
