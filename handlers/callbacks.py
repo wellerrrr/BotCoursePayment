@@ -1,4 +1,5 @@
-from aiogram import Router, F, Bot
+from aiogram import Router, F, Bot, types
+from aiogram.filters import Command, Filter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.media_group import MediaGroupBuilder
 from aiogram.fsm.state import State, StatesGroup
@@ -7,7 +8,9 @@ from keyboards import inline
 from services.reviews import ReviewService
 from services.purchasing import check_consent, save_consent
 from services.commands import get_all_messages, is_admin, get_message_by_title
-from handlers.start import start
+from config import config
+
+from aiogram.types import LabeledPrice
 
 import logging
 logger = logging.getLogger(__name__)
@@ -22,8 +25,8 @@ class PurchaseStates(StatesGroup):
 
 
 def get_consent_buttons(user_id: int):
-    data_text = "Согласен с обработкой данных ✓" if user_consents.get(user_id, {}).get("data_consent", False) else "Согласен с обработкой данных"
-    offer_text = "Акцептую оферту ✓" if user_consents.get(user_id, {}).get("offer_consent", False) else "Акцептую оферту"
+    data_text = "✓ Согласен с обработкой данных" if user_consents.get(user_id, {}).get("data_consent", False) else "Согласен с обработкой данных"
+    offer_text = "✓ Акцептую оферту" if user_consents.get(user_id, {}).get("offer_consent", False) else "Акцептую оферту"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text=data_text, callback_data="consent_data"),
@@ -36,19 +39,28 @@ def get_consent_buttons(user_id: int):
 user_consents = {}
 
 @cb_handler.callback_query(F.data == 'buy')
-async def handler_buy(callback: CallbackQuery, state: FSMContext):
-    msg_data = get_message_by_title("Продолжить покупку")
+async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    msg_data = get_message_by_title("Купить")
     msg_text = msg_data[2] 
     await callback.answer()
     user_id = callback.from_user.id
     data_consent, offer_consent = check_consent(user_id)
     if data_consent and offer_consent:
-        await callback.message.answer(
-            """Чтобы оплатить переходите по ссылке: https://example.com
+        prices = [LabeledPrice(label="Курс покупки и продажи земли", amount=990000)]
+        await bot.send_invoice(
+        chat_id=callback.message.chat.id,
+        title="Тестовый платеж",
+        description="""После оплаты вы попадаете в закрытый канал.
 
-P.S. Если у вас проблемы с оплатой, нажмите кнопку "Не получается оплатить", и мы поможем""",
-            reply_markup=inline.get_buy_button()
-        )
+Здесь каждый шаг превращен в понятную инструкцию, подкрепленную полезными рекомендациями. Мы также включили шаблоны документов для вашего удобства""",
+        provider_token=config.PAYMENTS_TOKEN,
+        payload="test-invoice-payload",
+        currency="RUB",
+        prices=prices,
+        start_parameter="test-payment",
+        need_email=False,
+    )
+        await callback.answer('Воспользоваться меню:', reply_markup=inline.get_buy_button())
         return
 
     await callback.message.answer(
@@ -57,23 +69,66 @@ P.S. Если у вас проблемы с оплатой, нажмите кн�
     )
     await state.set_state(PurchaseStates.awaiting_continue)
 
+@cb_handler.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
+    await pre_checkout_query.bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@cb_handler.message(F.content_type == types.ContentType.SUCCESSFUL_PAYMENT)
+async def process_successful_payment(message: types.Message):
+    payment_info = message.successful_payment
+    await message.answer(
+        f"Платеж успешен!\n"
+        f"Сумма: {payment_info.total_amount / 100} {payment_info.currency}\n"
+        f"ID платежа: {payment_info.telegram_payment_charge_id}"
+    )
+
 @cb_handler.callback_query(F.data == 'continue_to_consent')
 async def continue_to_consent(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    msg_data = get_message_by_title("Согласие на обработку данных")
+    msg_text = msg_data[2]
+
     user_id = callback.from_user.id
     user_consents[user_id] = {"data_consent": False, "offer_consent": False}
     
     await callback.message.answer(
-        "Перед покупкой необходимо согласиться с обработкой персональных данных и акцептовать оферту.\n\n"
-        "Ознакомьтесь с документами:\n"
-        "[Политика конфиденциальности](https://your-site.com/privacy)\n"
-        "[Оферта](https://your-site.com/offer)\n\n"
-        "Подтвердите согласие, нажав на кнопки ниже:",
+        msg_text,
         reply_markup=get_consent_buttons(user_id),
-        parse_mode="Markdown"
     )
 
     await state.set_state(PurchaseStates.awaiting_consent)
+
+@cb_handler.callback_query(F.data == 'proceed_to_payment')
+async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    user_id = callback.from_user.id
+    current_state = await state.get_state()
+    if current_state != PurchaseStates.awaiting_consent.state:
+        await callback.answer("Процесс покупки уже завершён или не начат. Нажмите 'Купить' для повторного прохождения.", show_alert=True)
+        return
+    
+    if user_consents.get(user_id, {}).get("data_consent") and user_consents.get(user_id, {}).get("offer_consent"):
+
+        save_consent(user_id, True, True)
+        
+        user_id = callback.from_user.id
+        data_consent, offer_consent = check_consent(user_id)
+        if data_consent and offer_consent:
+            prices = [LabeledPrice(label="Курс покупки и продажи земли", amount=990000)]
+            await bot.send_invoice(
+            chat_id=callback.message.chat.id,
+            title="Курс Покупки-Продажи Земли",
+            description="""После оплаты вы попадаете в закрытый канал.
+
+Здесь каждый шаг превращен в понятную инструкцию, подкрепленную полезными рекомендациями. Мы также включили шаблоны документов для вашего удобства.""",
+            provider_token=config.PAYMENTS_TOKEN,
+            payload="test-invoice-payload",
+            currency="RUB",
+            prices=prices,
+            start_parameter="test-payment",
+            need_email=False,
+        )
+    else:
+        await callback.answer("Пожалуйста, подтвердите оба согласия перед продолжением.", show_alert=True)
 
 
 @cb_handler.callback_query(F.data == 'consent_data')
@@ -108,31 +163,6 @@ async def consent_offer(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=get_consent_buttons(user_id))
 
 
-@cb_handler.callback_query(F.data == 'proceed_to_payment')
-async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
-    msg_data = get_message_by_title("Оплата")
-    msg_text = msg_data[2]
-    user_id = callback.from_user.id
-    current_state = await state.get_state()
-    if current_state != PurchaseStates.awaiting_consent.state:
-        await callback.answer("Процесс покупки уже завершён или не начат. Нажмите 'Купить' для повторного прохождения.", show_alert=True)
-        return
-    
-    if user_consents.get(user_id, {}).get("data_consent") and user_consents.get(user_id, {}).get("offer_consent"):
-
-        save_consent(user_id, True, True)
-        
-        await callback.answer()
-
-        await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(
-            msg_text,
-            reply_markup=inline.get_buy_button()
-        )
-        await state.clear()
-        user_consents.pop(user_id, None)
-    else:
-        await callback.answer("Пожалуйста, подтвердите оба согласия перед продолжением.", show_alert=True)
 
 @cb_handler.callback_query(F.data == 'reviews')
 async def show_reviews_to_user(callback: CallbackQuery, review_service: ReviewService, bot: Bot):
