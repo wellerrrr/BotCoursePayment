@@ -1,5 +1,5 @@
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 
@@ -19,3 +19,9 @@ async def start(message: Message, bot: Bot):
     if msg:
         await message.answer(msg[2],
                              reply_markup=inline.get_start_keyboard())
+    
+@router.message(F.forward_from_chat)
+async def handle_forward(message: Message):
+    if message.forward_from_chat.type == "channel":
+        await message.reply(f"ID канала: <code>{message.forward_from_chat.id}</code>", 
+                          parse_mode="HTML")
