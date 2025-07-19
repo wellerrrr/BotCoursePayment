@@ -5,18 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: telegram_bot
     restart: unless-stopped
-    environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - SUPPORT_BOT_TOKEN=${SUPPORT_BOT_TOKEN}
-      - ADMIN_IDS=${ADMIN_IDS}
     volumes:
       - ./database:/app/database
-      - /database/land_course.db:/home/user/BotCoursePayment/land_course.db
     env_file:
       - .env
-    healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep '[p]ython main.py' || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
