@@ -5,7 +5,6 @@ def get_start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text='Купить', callback_data='buy')],
         [InlineKeyboardButton(text='Посмотреть, что внутри', callback_data='preview')],
-        [InlineKeyboardButton(text='Отзывы', callback_data='reviews')],
         [InlineKeyboardButton(text='Поддержка', url='https://t.me/larincompany')],
     ])
 
