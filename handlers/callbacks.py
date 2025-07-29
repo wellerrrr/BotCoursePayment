@@ -47,10 +47,10 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
     user_id = callback.from_user.id
     data_consent, offer_consent = check_consent(user_id)
     if data_consent and offer_consent:
-        prices = [LabeledPrice(label="Курс покупки и продажи земли", amount=990000)]
+        prices = [LabeledPrice(label="Курс Выкуп Земли 2025", amount=990000)]
         await bot.send_invoice(
             chat_id=callback.message.chat.id,
-            title="Курс покупки-продажи земли",
+            title="Курс Выкуп Земли 2025",
             description="""Финальный шаг к Вашим первым участкам
 
 Сумма к оплате: 9.900 руб
@@ -214,10 +214,10 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bo
         user_id = callback.from_user.id
         data_consent, offer_consent = check_consent(user_id)
         if data_consent and offer_consent:
-            prices = [LabeledPrice(label="Курс покупки и продажи земли", amount=990000)]
+            prices = [LabeledPrice(label="Курс Выкуп Земли 2025", amount=990000)]
             await bot.send_invoice(
             chat_id=callback.message.chat.id,
-            title="Курс Покупки-Продажи Земли",
+            title="Курс Выкуп Земли 2025",
             description="""Финальный шаг к Вашим первым участкам
 
 \nСумма к оплате: 9.900 руб

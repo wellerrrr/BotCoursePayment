@@ -79,8 +79,8 @@ def save_payment(user_id: int, payment_info: types.SuccessfulPayment):
         payment_info.telegram_payment_charge_id, 
         payment_info.total_amount, 
         payment_info.currency,
-        payment_date,  # Сохраняем читаемую дату
-        payment_timestamp  # Сохраняем и timestamp для возможных вычислений
+        payment_date,
+        payment_timestamp,
     ))
     
     conn.commit()
