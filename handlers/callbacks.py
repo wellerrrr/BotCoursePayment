@@ -81,7 +81,7 @@ async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery)
 async def process_successful_payment(message: Message, bot: Bot):
     payment_info = message.successful_payment
     user_id = message.from_user.id
-    chat_id = "-1002012033600"  # ID приватного канала
+    chat_id = "-1002597950609"  # ID приватного канала
 
     # Сохраняем информацию о платеже
     save_payment(user_id, payment_info)
@@ -119,7 +119,7 @@ async def process_successful_payment(message: Message, bot: Bot):
 
 # Функция для проверки участников канала
 async def check_channel_members(bot: Bot):
-    chat_id = "-1002012033600"
+    chat_id = "-1002597950609"
     try:
         # Получаем список участников (ограниченное количество)
         members_count = await bot.get_chat_member_count(chat_id)
@@ -146,7 +146,7 @@ async def handle_join_request(update: types.ChatJoinRequest, bot: Bot):
 @cb_handler.message(Command("check_access"))
 async def check_access(message: Message, bot: Bot):
     user_id = message.from_user.id
-    chat_id = "-1002012033600"
+    chat_id = "-1002597950609"
     
     if has_payment(user_id):
         try:
