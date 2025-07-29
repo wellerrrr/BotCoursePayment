@@ -4,8 +4,7 @@ __pycache__/
 .venv
 *.db
 *.sqlite
-database/
 course-bot.tar
-database/land_course.db
+/land_course.db
 *.swp 
 venv/
