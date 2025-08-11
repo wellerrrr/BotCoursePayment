@@ -35,10 +35,11 @@ def init_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS payments (
         user_id INTEGER,
         payment_id TEXT,
-        amount INTEGER,
+        amount REAL,
         currency TEXT,
         payment_timestamp INTEGER,
         payment_date TEXT,
+        payment_method TEXT,
         PRIMARY KEY (user_id, payment_id)
     )''')
 
@@ -120,23 +121,23 @@ def save_yookassa_payment(user_id: int, payment):
     cursor = conn.cursor()
     
     payment_timestamp = int(time.time())
-    payment_date = datetime.fromtimestamp(payment_timestamp).strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Конвертируем сумму из формата ЮKassa (рубли.копейки) в копейки
-    amount = int(float(payment.amount.value) * 100)
+    # Сохраняем рубли, а не копейки (делим на 100)
+    amount = float(payment.amount.value)  # Получаем 1.00 вместо 100
     
     cursor.execute("""
         INSERT INTO payments 
-        (user_id, payment_id, amount, currency, payment_date, payment_timestamp, payment_method) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (user_id, payment_id, amount, currency, payment_date, 
+         payment_timestamp, payment_method, payment_status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         user_id, 
         payment.id, 
-        amount, 
+        amount,  # Теперь сохраняется 1.00 вместо 100
         payment.amount.currency,
-        payment_date,
+        datetime.fromtimestamp(payment_timestamp).strftime('%Y-%m-%d %H:%M:%S'),
         payment_timestamp,
-        payment.payment_method.type if payment.payment_method else "unknown"
+        payment.payment_method.type if payment.payment_method else "unknown",
+        payment.status
     ))
     
     conn.commit()
@@ -146,7 +147,12 @@ def save_yookassa_payment(user_id: int, payment):
 def has_payment(user_id: int) -> bool:
     conn = sqlite3.connect("database/land_course.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM payments WHERE user_id = ? LIMIT 1", (user_id,))
+    cursor.execute("""
+        SELECT 1 FROM payments 
+        WHERE user_id = ? 
+        AND payment_status = 'succeeded'
+        LIMIT 1
+    """, (user_id,))
     result = cursor.fetchone() is not None
     conn.close()
     return result

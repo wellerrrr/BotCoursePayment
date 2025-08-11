@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 cb_handler = Router()
 review_service = ReviewService()
 
-Configuration.account_id = "1093251"
-Configuration.secret_key = "live_24mbzRT5w1d30qUEYPUmi7CIlKbDytvKmrc1PLhHtmY"
+Configuration.account_id = config.ACCOUNT_ID
+Configuration.secret_key = config.PAYMENTS_TOKEN
 
 class PurchaseStates(StatesGroup):
     awaiting_continue = State()
@@ -96,32 +96,45 @@ async def create_yookassa_payment(user_id: int, email: str):
         print(f"Ошибка при создании платежа в ЮKassa: {e}")
         return None
     
+
+def get_russian_status(status: str) -> str:
+    status_map = {
+        'pending': 'в обработке',
+        'waiting_for_capture': 'ожидает подтверждения',
+        'succeeded': 'оплачен',
+        'canceled': 'отменен',
+        'refunded': 'возвращен'
+    }
+    return status_map.get(status, status)
+
 @cb_handler.callback_query(F.data == "check_payment")
 async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     
-    # Получаем сохраненный payment_id из состояния
     data = await state.get_data()
     payment_id = data.get('yookassa_payment_id')
+    user_id = data.get('user_id')
     
-    if not payment_id:
-        await callback.message.answer('❌ Не найден ID платежа')
+    if not payment_id or not user_id:
+        await callback.message.answer('❌ Данные платежа не найдены')
         return
 
-    # Проверяем платеж через API ЮKassa
     try:
         payment = Payment.find_one(payment_id)
+        status = get_russian_status(payment.status)
         
         if payment.status == 'succeeded':
-            user_id = data.get('user_id')  # Получаем user_id из metadata или state
-            await callback.message.answer('✅ Платеж подтвержден!')
-            await send_invite_link(callback.message, user_id, bot)
+            if not has_payment(user_id):
+                save_yookassa_payment(user_id, payment)
+                await callback.message.answer('✅ Платеж подтвержден! Доступ открыт.')
+                await send_invite_link(callback.message, user_id, bot)
+            else:
+                await callback.message.answer('✅ Платеж уже был подтвержден ранее')
         else:
-            await callback.message.answer('❌ Платеж еще не прошел')
+            await callback.message.answer(f'⌛ Платеж {status}. Пожалуйста, подождите...')
             
     except Exception as e:
-        await callback.message.answer(f'⚠️ Ошибка проверки платежа: {str(e)}')
-
+        await callback.message.answer(f'⚠️ Ошибка: {str(e)}')
 
 async def send_invite_link(message: Message, user_id: int, bot: Bot):
     """Функция для отправки инвайт-ссылки"""
@@ -193,7 +206,7 @@ async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery)
 
 @cb_handler.message(F.successful_payment)
 async def process_successful_payment(message: Message, bot: Bot):
-    """Обработчик успешного платежа через Telegram Payments"""
+
     payment_info = message.successful_payment
     user_id = message.from_user.id
     
@@ -328,29 +341,24 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bo
     await process_payment(user_id, email, callback.message, state, bot)
 
 async def process_payment(user_id: int, email: str, message: Message, state: FSMContext, bot: Bot):
-    payment_url, payment_id = await create_yookassa_payment(user_id, email)  # Распаковываем кортеж
+    """Создание платежа без сохранения в БД"""
+    payment_url, payment_id = await create_yookassa_payment(user_id, email)
     
-    if payment_url:  # Проверяем URL, а не объект платежа
+    if payment_url:
         await state.update_data(
-            yookassa_payment_id=payment_id,  # Используем payment_id
+            yookassa_payment_id=payment_id,
+            user_id=user_id,
             callback_message=message
         )
         
         pay_button = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Оплатить на сайте ЮKassa", url=payment_url)],  # Используем payment_url
+            [InlineKeyboardButton(text="Оплатить на сайте ЮKassa", url=payment_url)],
             [InlineKeyboardButton(text="Проверить оплату", callback_data="check_payment")]
         ])
         
-        await message.answer(
-            """Остался всего один шаг. Сделайте его и начните зарабатывать на земле.
-
-Стоимость доступа: 1 рубль
-
-Нажмите «Оплатить на сайте ЮKassa», чтобы получить пошаговый план по покупке Ваших первых участков!""",
-            reply_markup=pay_button
-        )
+        await message.answer("Остался последний шаг...", reply_markup=pay_button)
     else:
-        await message.answer("Ошибка при создании платежа. Пожалуйста, попробуйте позже.")
+        await message.answer("Ошибка при создании платежа")
 
 @cb_handler.message(PurchaseStates.awaiting_email)
 async def process_email(message: Message, state: FSMContext, bot: Bot):
