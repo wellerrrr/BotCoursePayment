@@ -1,13 +1,17 @@
 from aiogram import Router, F, Bot, types
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.media_group import MediaGroupBuilder
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from keyboards import inline
 from services.reviews import ReviewService
-from services.purchasing import check_consent, save_consent, save_invite_link, save_payment, has_payment
+from services.purchasing import (save_consent, save_invite_link, has_payment,
+                                 save_yookassa_payment, get_user_email, save_user_email, validate_email)
 from services.commands import get_all_messages, is_admin, get_message_by_title
 from config import config
+import uuid
+from yookassa import Payment, Configuration
+import yookassa
 
 from aiogram.types import LabeledPrice
 from aiogram.filters import Command
@@ -20,10 +24,13 @@ logger = logging.getLogger(__name__)
 cb_handler = Router()
 review_service = ReviewService()
 
+Configuration.account_id = "1093251"
+Configuration.secret_key = "live_24mbzRT5w1d30qUEYPUmi7CIlKbDytvKmrc1PLhHtmY"
+
 class PurchaseStates(StatesGroup):
     awaiting_continue = State()
     awaiting_consent = State()
-
+    awaiting_email = State()
 
 
 user_consents = {}
@@ -32,40 +39,147 @@ def get_consent_buttons(user_id: int):
     offer_text = "✓ Акцептую оферту" if user_consents.get(user_id, {}).get("offer_consent", False) else "Акцептую оферту"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
+            InlineKeyboardButton(text='Политика конфиденциальности', url='https://docs.google.com/document/d/1_01AHDErOBo8EiK_ugseiOJQ_OuxK00C/edit?tab=t.0'),
+            InlineKeyboardButton(text='Оферта', url='https://docs.google.com/document/d/1hdaA1hLhKb2vc234-WTVu-33h1viylU-/edit?tab=t.0'),
+        ],
+        [
             InlineKeyboardButton(text=data_text, callback_data="consent_data"),
-            InlineKeyboardButton(text=offer_text, callback_data="consent_offer")
+            InlineKeyboardButton(text=offer_text, callback_data="consent_offer"),
         ],
         [InlineKeyboardButton(text="Продолжить", callback_data="proceed_to_payment")]
     ])
     return keyboard
+
+async def create_yookassa_payment(user_id: int, email: str):
+    try:
+        idempotence_key = str(uuid.uuid4())
+        amount = 1.00
+        
+        payment = Payment.create({
+            "amount": {
+                "value": f"{amount:.2f}",
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/promote_land_bot"
+            },
+            "capture": True,
+            "description": "Доступ к курсу 'Выкуп Земли 2025'",
+            "metadata": {
+                "user_id": user_id,
+                "product": "land_course_2025",
+                "bot_payment": True
+            },
+            "receipt": {
+                "customer": {
+                    "email": email
+                },
+                "items": [
+                    {
+                        "description": "Доступ к курсу 'Выкуп Земли 2025'",
+                        "quantity": "1",
+                        "amount": {
+                            "value": f"{amount:.2f}",
+                            "currency": "RUB"
+                        },
+                        "vat_code": "1",
+                        "payment_mode": "full_payment",
+                        "payment_subject": "service"
+                    }
+                ]
+            }
+        }, idempotence_key)
+        
+        return payment.confirmation.confirmation_url, payment.id
+    except Exception as e:
+        print(f"Ошибка при создании платежа в ЮKassa: {e}")
+        return None
+    
+@cb_handler.callback_query(F.data == "check_payment")
+async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.answer()
+    
+    # Получаем сохраненный payment_id из состояния
+    data = await state.get_data()
+    payment_id = data.get('yookassa_payment_id')
+    
+    if not payment_id:
+        await callback.message.answer('❌ Не найден ID платежа')
+        return
+
+    # Проверяем платеж через API ЮKassa
+    try:
+        payment = Payment.find_one(payment_id)
+        
+        if payment.status == 'succeeded':
+            user_id = data.get('user_id')  # Получаем user_id из metadata или state
+            await callback.message.answer('✅ Платеж подтвержден!')
+            await send_invite_link(callback.message, user_id, bot)
+        else:
+            await callback.message.answer('❌ Платеж еще не прошел')
+            
+    except Exception as e:
+        await callback.message.answer(f'⚠️ Ошибка проверки платежа: {str(e)}')
+
+
+async def send_invite_link(message: Message, user_id: int, bot: Bot):
+    """Функция для отправки инвайт-ссылки"""
+    chat_id = "-1002597950609"  # ID приватного канала
+    
+    try:
+        # Генерация одноразовой инвайт-ссылки
+        invite_link = await bot.create_chat_invite_link(
+            chat_id=chat_id,
+            name=f"Invite for user {user_id}",
+            expire_date=int(time.time()) + 24 * 3600,  # 24 часа
+            member_limit=1  # Одноразовая ссылка
+        )
+
+        # Сохранение ссылки в базе данных
+        save_invite_link(user_id, invite_link.invite_link)
+
+        # Создание клавиатуры с кнопкой
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в канал", url=invite_link.invite_link)]
+        ])
+
+        # Отправка сообщения
+        await message.answer(
+            """
+Ваш доступ к материалам курса находится в закрытом Telegram-канале. 
+
+**Важно**: 
+- Эта ссылка действует 24 часа
+- Она одноразовая и предназначена только для вас
+- Не передавайте её другим!""",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        await message.answer("❌ Произошла ошибка при создании доступа. Обратитесь в поддержку.")
+        print(f"Error creating invite link: {e}")
 
 @cb_handler.callback_query(F.data == 'buy')
 async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
     msg_data = get_message_by_title("Купить")
     msg_text = msg_data[2]
     await callback.answer()
-    user_id = callback.from_user.id
-    data_consent, offer_consent = check_consent(user_id)
-    if data_consent and offer_consent:
-        prices = [LabeledPrice(label="Курс Выкуп Земли 2025", amount=990000)]
-        await bot.send_invoice(
-            chat_id=callback.message.chat.id,
-            title="Курс Выкуп Земли 2025",
-            description="""Финальный шаг к Вашим первым участкам
 
-Сумма к оплате: 9.900 руб
-
-Нажмите «Заплатить», чтобы начать свой путь земельного инвестора прямо сейчас""",
-            provider_token=config.PAYMENTS_TOKEN,
-            payload="test-invoice-payload",
-            currency="RUB",
-            prices=prices,
-            start_parameter="test-payment",
-            need_email=False,
-        )
-        await callback.message.edit_reply_markup(reply_markup=inline.get_buy_button())
+    # Получаем результат создания платежа
+    payment_result = await create_yookassa_payment(callback.message.from_user.id, get_user_email(callback.from_user.id))
+    
+    # Проверяем, что результат не None
+    if payment_result is None:
+        await callback.message.answer("Ошибка при создании платежа. Попробуйте позже.")
         return
 
+    # Распаковываем результат
+    payment_url, payment_id = payment_result
+    
+    await callback.message.answer(f"{payment_url}\n{payment_id}")
+    
     await callback.message.answer(
         text=msg_text,
         reply_markup=inline.get_continue_button()
@@ -77,45 +191,17 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
 async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
     await pre_checkout_query.bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-@cb_handler.message(F.content_type == types.ContentType.SUCCESSFUL_PAYMENT)
+@cb_handler.message(F.successful_payment)
 async def process_successful_payment(message: Message, bot: Bot):
+    """Обработчик успешного платежа через Telegram Payments"""
     payment_info = message.successful_payment
     user_id = message.from_user.id
-    chat_id = "-1002597950609"  # ID приватного канала
-
-    # Сохраняем информацию о платеже
-    save_payment(user_id, payment_info)
-
-    # Генерация одноразовой инвайт-ссылки
-    try:
-        invite_link: types.ChatInviteLink = await bot.create_chat_invite_link(
-            chat_id=chat_id,
-            name=f"Invite for user {user_id}",
-            expire_date=int(time.time()) + 24 * 3600,  # Ссылка активна 24 часа
-            member_limit=1  # Только один пользователь может использовать
-        )
-
-        # Сохранение ссылки в базе данных
-        save_invite_link(user_id, invite_link.invite_link)
-
-        # Создание инлайн-кнопки
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в канал", url=invite_link.invite_link)]
-        ])
-
-        # Отправка сообщения с кнопкой
-        await message.answer(
-            """Спасибо за покупку!
-
-Ваш доступ к материалам курса находится в закрытом Telegram-канале. Нажмите кнопку ниже, чтобы перейти.
-
-**Важно**: Эта ссылка одноразовая и предназначена только для вас. Не передавайте её другим!""",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        await message.answer("Произошла ошибка при создании ссылки. Обратитесь в поддержку.")
-        print(f"Error creating invite link: {e}")
+    
+    # Сохраняем платеж
+    save_yookassa_payment(user_id, payment_info)
+    
+    # Отправляем инвайт-ссылку
+    await send_invite_link(message, user_id, bot)
 
 # Функция для проверки участников канала
 async def check_channel_members(bot: Bot):
@@ -141,6 +227,14 @@ async def handle_join_request(update: types.ChatJoinRequest, bot: Bot):
     else:
         # Отклоняем запрос, если оплаты нет
         await update.decline()
+
+def check(payment_id):
+    payment = yookassa.Payment.find_one(payment_id)
+    if payment.status == "succeeded":
+        return payment.metadata
+    
+    return False
+
 
 # Команда для ручной проверки доступа
 @cb_handler.message(Command("check_access"))
@@ -202,36 +296,85 @@ async def continue_to_consent(callback: CallbackQuery, state: FSMContext):
 @cb_handler.callback_query(F.data == 'proceed_to_payment')
 async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     user_id = callback.from_user.id
+    
+    # Проверяем текущее состояние
     current_state = await state.get_state()
     if current_state != PurchaseStates.awaiting_consent.state:
         await callback.answer("Процесс покупки уже завершён или не начат. Нажмите 'Купить' для повторного прохождения.", show_alert=True)
         return
     
-    if user_consents.get(user_id, {}).get("data_consent") and user_consents.get(user_id, {}).get("offer_consent"):
+    # Проверяем согласия
+    if not (user_consents.get(user_id, {}).get("data_consent") and user_consents.get(user_id, {}).get("offer_consent")):
+        await callback.answer("Необходимо принять соглашения", show_alert=True)
+        return
+    
+    # Сохраняем согласия в БД
+    save_consent(user_id, True, True)
+    
+    # Проверяем email в БД
+    email = get_user_email(user_id)
+    
+    if not email:
+        # Если email нет - запрашиваем
+        await callback.message.answer("Пожалуйста, укажите ваш email для отправки чека:")
+        await state.set_state(PurchaseStates.awaiting_email)
+        await state.update_data(
+            callback_message=callback.message,
+            from_proceed_to_payment=True  # Флаг, что перешли из этого обработчика
+        )
+        return
+    
+    # Если email есть - сразу создаем платеж
+    await process_payment(user_id, email, callback.message, state, bot)
 
-        save_consent(user_id, True, True)
+async def process_payment(user_id: int, email: str, message: Message, state: FSMContext, bot: Bot):
+    payment_url, payment_id = await create_yookassa_payment(user_id, email)  # Распаковываем кортеж
+    
+    if payment_url:  # Проверяем URL, а не объект платежа
+        await state.update_data(
+            yookassa_payment_id=payment_id,  # Используем payment_id
+            callback_message=message
+        )
         
-        user_id = callback.from_user.id
-        data_consent, offer_consent = check_consent(user_id)
-        if data_consent and offer_consent:
-            prices = [LabeledPrice(label="Курс Выкуп Земли 2025", amount=990000)]
-            await bot.send_invoice(
-            chat_id=callback.message.chat.id,
-            title="Курс Выкуп Земли 2025",
-            description="""Финальный шаг к Вашим первым участкам
+        pay_button = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Оплатить на сайте ЮKassa", url=payment_url)],  # Используем payment_url
+            [InlineKeyboardButton(text="Проверить оплату", callback_data="check_payment")]
+        ])
+        
+        await message.answer(
+            """Остался всего один шаг. Сделайте его и начните зарабатывать на земле.
 
-\nСумма к оплате: 9.900 руб
+Стоимость доступа: 1 рубль
 
-Нажмите «Заплатить», чтобы начать свой путь земельного инвестора прямо сейчас""",
-            provider_token=config.PAYMENTS_TOKEN,
-            payload="test-invoice-payload",
-            currency="RUB",
-            prices=prices,
-            start_parameter="test-payment",
-            need_email=False,
+Нажмите «Оплатить на сайте ЮKassa», чтобы получить пошаговый план по покупке Ваших первых участков!""",
+            reply_markup=pay_button
         )
     else:
-        await callback.answer("Пожалуйста, подтвердите оба согласия перед продолжением.", show_alert=True)
+        await message.answer("Ошибка при создании платежа. Пожалуйста, попробуйте позже.")
+
+@cb_handler.message(PurchaseStates.awaiting_email)
+async def process_email(message: Message, state: FSMContext, bot: Bot):
+    email = message.text.strip()
+    
+    # Валидация email
+    if not validate_email(email):
+        await message.answer("❌ Пожалуйста, введите корректный email (например: example@mail.ru):")
+        return
+    
+    # Сохраняем email
+    save_user_email(message.from_user.id, email)
+    
+    # Получаем контекст
+    state_data = await state.get_data()
+    callback_message = state_data.get("callback_message")
+    
+    # Если перешли из обработчика proceed_to_payment
+    if state_data.get("from_proceed_to_payment"):
+        await process_payment(message.from_user.id, email, callback_message or message, state, bot)
+    else:
+        await message.answer(f"✅ Email {email} сохранен. Теперь вы можете продолжить покупку.")
+    
+    await state.clear()
 
 
 @cb_handler.callback_query(F.data == 'consent_data')
@@ -313,7 +456,7 @@ async def show_reviews_to_user(callback: CallbackQuery, review_service: ReviewSe
 async def handler_preview(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
-    msg_data = get_message_by_title("Посмотреть, что внутри")
+    msg_data = get_message_by_title("Подробнее")
     msg_text = msg_data[2]
 
     await callback.message.edit_text(

@@ -6,6 +6,18 @@ from aiogram import types
 def init_db():
     conn = sqlite3.connect('database/land_course.db')
     cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        email TEXT UNIQUE,
+        registration_date TEXT,
+        registration_timestamp INTEGER
+    )
+    """)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_consents (
             user_id INTEGER PRIMARY KEY,
@@ -20,7 +32,6 @@ def init_db():
         created_at INTEGER,
         created_date TEXT
     )''')
-    
     cursor.execute('''CREATE TABLE IF NOT EXISTS payments (
         user_id INTEGER,
         payment_id TEXT,
@@ -30,6 +41,7 @@ def init_db():
         payment_date TEXT,
         PRIMARY KEY (user_id, payment_id)
     )''')
+
     
     # Добавляем колонку created_date если её нет
     cursor.execute("PRAGMA table_info(user_links)")
@@ -41,6 +53,47 @@ def init_db():
     conn.close()
 
 init_db()
+
+def save_or_update_user(user_id: int, username: str = None, first_name: str = None, 
+                       last_name: str = None, email: str = None):
+    conn = sqlite3.connect("database/land_course.db")
+    cursor = conn.cursor()
+    
+    current_time = int(time.time())
+    current_date = datetime.fromtimestamp(current_time).strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Проверяем, существует ли пользователь
+    cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    user_exists = cursor.fetchone() is not None
+    
+    if user_exists:
+        # Обновляем данные
+        cursor.execute("""
+        UPDATE users SET
+            username = COALESCE(?, username),
+            first_name = COALESCE(?, first_name),
+            last_name = COALESCE(?, last_name),
+            email = COALESCE(?, email)
+        WHERE user_id = ?
+        """, (username, first_name, last_name, email, user_id))
+    else:
+        # Создаем нового пользователя
+        cursor.execute("""
+        INSERT INTO users 
+        (user_id, username, first_name, last_name, email, registration_date, registration_timestamp) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, 
+            username, 
+            first_name, 
+            last_name, 
+            email,
+            current_date,
+            current_time
+        ))
+    
+    conn.commit()
+    conn.close()
 
 def save_consent(user_id: int, data_consent: bool, offer_consent: bool):
     conn = sqlite3.connect('database/land_course.db')
@@ -62,25 +115,28 @@ def check_consent(user_id: int):
     return result if result else (False, False)
 
 
-def save_payment(user_id: int, payment_info: types.SuccessfulPayment):
+def save_yookassa_payment(user_id: int, payment):
     conn = sqlite3.connect("database/land_course.db")
     cursor = conn.cursor()
     
-    # Получаем текущее время в Unix timestamp и преобразуем в читаемую дату
     payment_timestamp = int(time.time())
     payment_date = datetime.fromtimestamp(payment_timestamp).strftime('%Y-%m-%d %H:%M:%S')
     
+    # Конвертируем сумму из формата ЮKassa (рубли.копейки) в копейки
+    amount = int(float(payment.amount.value) * 100)
+    
     cursor.execute("""
         INSERT INTO payments 
-        (user_id, payment_id, amount, currency, payment_date, payment_timestamp) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        (user_id, payment_id, amount, currency, payment_date, payment_timestamp, payment_method) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         user_id, 
-        payment_info.telegram_payment_charge_id, 
-        payment_info.total_amount, 
-        payment_info.currency,
+        payment.id, 
+        amount, 
+        payment.amount.currency,
         payment_date,
         payment_timestamp,
+        payment.payment_method.type if payment.payment_method else "unknown"
     ))
     
     conn.commit()
@@ -111,3 +167,50 @@ def save_invite_link(user_id: int, invite_link: str):
     conn.commit()
     conn.close()
 
+def validate_email(email: str) -> bool:
+    """Простая проверка формата email"""
+    if not email or '@' not in email:
+        return False
+    parts = email.split('@')
+    if len(parts) != 2:
+        return False
+    return '.' in parts[1] and len(parts[1].split('.')[-1]) >= 2
+
+def get_user_email(user_id: int) -> str:
+    """Получаем email пользователя из базы данных"""
+    conn = sqlite3.connect("database/land_course.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT email FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+def save_user_email(user_id: int, email: str):
+    """Сохраняет email пользователя в таблицу users"""
+    conn = sqlite3.connect("database/land_course.db")
+    cursor = conn.cursor()
+    
+    try:
+        # Проверяем существование таблицы users
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            email TEXT,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            registration_date TEXT
+        )
+        """)
+        
+        # Обновляем email пользователя
+        cursor.execute("""
+        INSERT OR REPLACE INTO users (user_id, email)
+        VALUES (?, ?)
+        """, (user_id, email))
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Ошибка при сохранении email: {e}")
+    finally:
+        conn.close()

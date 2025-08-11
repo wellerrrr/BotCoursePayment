@@ -4,8 +4,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def get_start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text='Купить', callback_data='buy')],
-        [InlineKeyboardButton(text='Посмотреть, что внутри', callback_data='preview')],
-        [InlineKeyboardButton(text='Поддержка', url='https://t.me/larincompany')],
+        [InlineKeyboardButton(text='Подробнее', callback_data='preview')],
+        [InlineKeyboardButton(text='Поддержка', url='https://t.me/zemlyaservice')],
     ])
 
 
@@ -16,13 +16,13 @@ buy_keyboard_menu = InlineKeyboardMarkup(inline_keyboard=[
 
 def get_buy_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='Не получается оплатить', url='https://t.me/larincompany')],
+        [InlineKeyboardButton(text='Не получается оплатить', url='https://t.me/zemlyaservice')],
         [InlineKeyboardButton(text='В меню', callback_data='back_menu')],
     ])
 
 def get_support_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='Не получается оплатить', url='https://t.me/larincompany')],
+        [InlineKeyboardButton(text='Не получается оплатить', url='https://t.me/zemlyaservice')],
     ])
 
 def get_press_to_buy_button() -> InlineKeyboardMarkup:
