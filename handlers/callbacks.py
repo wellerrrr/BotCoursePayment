@@ -112,10 +112,16 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     
     data = await state.get_data()
-    payment_id = data.get('yookassa_payment_id')
-    user_id = data.get('user_id')
+    user_id = callback.from_user.id
     
-    if not payment_id or not user_id:
+    # Сначала проверяем БД
+    if has_payment(user_id):
+        await send_access_message(callback.message, user_id, bot)
+        return
+        
+    # Если в БД нет, проверяем через ЮKassa
+    payment_id = data.get('yookassa_payment_id')
+    if not payment_id:
         await callback.message.answer('❌ Данные платежа не найдены')
         return
 
@@ -126,15 +132,16 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
         if payment.status == 'succeeded':
             if not has_payment(user_id):
                 save_yookassa_payment(user_id, payment)
-                await callback.message.answer('✅ Платеж подтвержден! Доступ открыт.')
-                await send_invite_link(callback.message, user_id, bot)
-            else:
-                await callback.message.answer('✅ Платеж уже был подтвержден ранее')
+            await send_access_message(callback.message, user_id, bot)
         else:
             await callback.message.answer(f'⌛ Платеж {status}. Пожалуйста, подождите...')
             
     except Exception as e:
         await callback.message.answer(f'⚠️ Ошибка: {str(e)}')
+
+async def send_access_message(message: Message, user_id: int, bot: Bot):
+    
+    await send_invite_link(message, user_id, bot)
 
 async def send_invite_link(message: Message, user_id: int, bot: Bot):
     """Функция для отправки инвайт-ссылки"""
@@ -308,6 +315,7 @@ async def continue_to_consent(callback: CallbackQuery, state: FSMContext):
 
 @cb_handler.callback_query(F.data == 'proceed_to_payment')
 async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.answer()
     user_id = callback.from_user.id
     
     # Проверяем текущее состояние
@@ -356,7 +364,11 @@ async def process_payment(user_id: int, email: str, message: Message, state: FSM
             [InlineKeyboardButton(text="Проверить оплату", callback_data="check_payment")]
         ])
         
-        await message.answer("Остался последний шаг...", reply_markup=pay_button)
+        await message.answer("""Остался всего один шаг. Сделайте его и начните зарабатывать на земле.
+
+Стоимость доступа: 1 рубль
+
+Нажмите «Оплатить на сайте ЮKassa», чтобы получить пошаговый план по покупке Ваших первых участков!""", reply_markup=pay_button)
     else:
         await message.answer("Ошибка при создании платежа")
 

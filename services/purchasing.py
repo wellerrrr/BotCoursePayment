@@ -3,6 +3,7 @@ import sqlite3
 import time
 from aiogram import types
 
+
 def init_db():
     conn = sqlite3.connect('database/land_course.db')
     cursor = conn.cursor()
@@ -143,8 +144,8 @@ def save_yookassa_payment(user_id: int, payment):
     conn.commit()
     conn.close()
 
-# Проверка наличия платежа у пользователя
 def has_payment(user_id: int) -> bool:
+    """Проверяет наличие успешного платежа в БД"""
     conn = sqlite3.connect("database/land_course.db")
     cursor = conn.cursor()
     cursor.execute("""
