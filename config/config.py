@@ -7,6 +7,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 PAYMENTS_TOKEN = os.getenv("PAYMENTS_TOKEN")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
+NGROK_TUNEL_URL = os.getenv("https://your-default-ngrok-url.ngrok.io")
 
 # Добавь отладочный вывод
 print(f"Loaded ADMIN_IDS: {ADMIN_IDS}")

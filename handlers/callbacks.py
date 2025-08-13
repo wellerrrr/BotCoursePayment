@@ -114,10 +114,18 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     
     data = await state.get_data()
     user_id = callback.from_user.id
+    chat_id = "-1002597950609"
     
     # Сначала проверяем БД
     if has_payment(user_id):
-        await send_access_message(callback.message, user_id, bot)
+        # Вместо генерации новой ссылки — даём универсальную кнопку для входа в канал
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")]
+        ])
+        await callback.message.answer(
+            "✅ Оплата подтверждена! Используйте кнопку ниже для входа в канал.",
+            reply_markup=keyboard
+        )
         return
         
     # Если в БД нет, проверяем через ЮKassa
@@ -133,7 +141,14 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
         if payment.status == 'succeeded':
             if not has_payment(user_id):
                 save_yookassa_payment(user_id, payment)
-            await send_access_message(callback.message, user_id, bot)
+            # После успешной оплаты — также даём универсальную кнопку
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")]
+            ])
+            await callback.message.answer(
+                "✅ Оплата подтверждена! Используйте кнопку ниже для входа в канал.",
+                reply_markup=keyboard
+            )
         else:
             await callback.message.answer(f'⌛ Платеж {status}. Пожалуйста, подождите...')
             
@@ -224,6 +239,7 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
     # Если оплаты нет - продолжаем стандартный процесс покупки
     msg_data = get_message_by_title("Купить")
     msg_text = msg_data[2]
+    await bot.send_message('admin', f"Пользователь {user_id} нажал 'Купить'")
 
     await callback.message.answer(
         text=msg_text,
