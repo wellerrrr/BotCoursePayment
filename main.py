@@ -12,20 +12,6 @@ import logging
 import asyncio
 
 
-async def handle_webhook(request, bot: Bot):
-    data = await request.json()
-    payment = data['object']
-    
-    if payment['status'] == 'succeeded':
-        user_id = payment['metadata']['user_id']
-        await bot.send_message(user_id, "✅ Платеж подтверждён! Доступ: t.me/ваш_канал")
-    
-    return web.Response(text="OK")
-
-app = web.Application()
-app.router.add_post('/yookassa_webhook', handle_webhook)
-
-
 async def run_bot(dispatcher: Dispatcher, bot: Bot):
     try:
         logger.info(f"Starting bot with token: [REDACTED]")
