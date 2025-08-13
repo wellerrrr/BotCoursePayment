@@ -28,7 +28,7 @@ def get_support_button() -> InlineKeyboardMarkup:
 def get_press_to_buy_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text='Купить', callback_data='buy')],
-        [InlineKeyboardButton(text='⬅️ Назад', callback_data='back_to_menu')],
+        [InlineKeyboardButton(text='Назад', callback_data='back_to_menu')],
     ])
 
 def get_back_button() -> InlineKeyboardMarkup:

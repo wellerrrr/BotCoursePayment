@@ -7,6 +7,7 @@ from keyboards import inline
 from services.reviews import ReviewService
 from services.purchasing import (save_consent, save_invite_link, has_payment,
                                  save_yookassa_payment, get_user_email, save_user_email, validate_email)
+from services.purchasing import get_user_invite_link
 from services.commands import get_all_messages, is_admin, get_message_by_title
 from config import config
 import uuid
@@ -170,7 +171,6 @@ async def send_invite_link(message: Message, user_id: int, bot: Bot):
 Ваш доступ к материалам курса находится в закрытом Telegram-канале. 
 
 **Важно**: 
-- Эта ссылка действует 24 часа
 - Она одноразовая и предназначена только для вас
 - Не передавайте её другим!""",
             reply_markup=keyboard,
@@ -183,13 +183,48 @@ async def send_invite_link(message: Message, user_id: int, bot: Bot):
 
 @cb_handler.callback_query(F.data == 'buy')
 async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    msg_data = get_message_by_title("Купить")
-    msg_text = msg_data[2]
+    user_id = callback.from_user.id
     await callback.answer()
 
-    await create_yookassa_payment(callback.message.from_user.id, get_user_email(callback.from_user.id))
-    
-    
+    # Проверяем, есть ли уже оплата
+    if has_payment(user_id):
+        chat_id = "-1002597950609"
+        try:
+            member = await bot.get_chat_member(chat_id, user_id)
+            if member.status in ["member", "administrator", "creator"]:
+                # Показываем кнопку, которая вызывает join request (без url)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")],
+                    [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
+                ])
+                await callback.message.answer(
+                    "✅ У вас уже есть доступ к каналу и вы уже в нём состоите!\n"
+                    "Если вы вышли из канала — используйте кнопку ниже для повторного входа.",
+                    reply_markup=keyboard
+                )
+                return
+        except Exception:
+            pass  # Если не удалось проверить, продолжаем как обычно
+
+        invite_link = get_user_invite_link(user_id)
+        if not invite_link:
+            # Если ссылки нет в БД, генерируем новую
+            await send_invite_link(callback.message, user_id, bot)
+            return
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в канал", url=invite_link)],
+            [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
+        ])
+        await callback.message.answer(
+            "✅ У вас уже есть доступ к каналу с курсом!\nИспользуйте кнопку ниже, чтобы перейти:",
+            reply_markup=keyboard
+        )
+        return
+
+    # Если оплаты нет - продолжаем стандартный процесс покупки
+    msg_data = get_message_by_title("Купить")
+    msg_text = msg_data[2]
+
     await callback.message.answer(
         text=msg_text,
         reply_markup=inline.get_continue_button()
@@ -307,16 +342,17 @@ async def continue_to_consent(callback: CallbackQuery, state: FSMContext):
 async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     user_id = callback.from_user.id
-    
+
     # Проверяем текущее состояние
     current_state = await state.get_state()
     if current_state != PurchaseStates.awaiting_consent.state:
         await callback.answer("Процесс покупки уже завершён или не начат. Нажмите 'Купить' для повторного прохождения.", show_alert=True)
         return
-    
+
     # Проверяем согласия
-    if not (user_consents.get(user_id, {}).get("data_consent") and user_consents.get(user_id, {}).get("offer_consent")):
-        await callback.answer("Необходимо принять соглашения", show_alert=True)
+    consents = user_consents.get(user_id, {})
+    if not (consents.get("data_consent") and consents.get("offer_consent")):
+        await callback.answer("Необходимо подтвердить оба согласия", show_alert=True)
         return
     
     # Сохраняем согласия в БД
@@ -324,7 +360,6 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bo
     
     # Проверяем email в БД
     email = get_user_email(user_id)
-    
     if not email:
         # Если email нет - запрашиваем
         await callback.message.answer("Пожалуйста, укажите ваш email для отправки чека:")

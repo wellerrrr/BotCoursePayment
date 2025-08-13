@@ -145,24 +145,6 @@ def save_yookassa_payment(user_id: int, payment):
     conn.commit()
     conn.close()
 
-def save_payment(user_id: int, payment_id: str, amount: int, currency: str, status: str, invite_link: str = None):
-    """Сохраняет платеж в базу данных"""
-    conn = sqlite3.connect("database/land_course.db")
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-        INSERT OR REPLACE INTO payments 
-        (user_id, payment_id, amount, currency, status, invite_link) 
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, (user_id, payment_id, amount, currency, status, invite_link))
-        
-        conn.commit()
-    except Exception as e:
-        print(f"Ошибка сохранения платежа: {e}")
-    finally:
-        conn.close()
-
 def has_payment(user_id: int) -> bool:
     """Проверяет наличие успешного платежа в БД"""
     conn = sqlite3.connect("database/land_course.db")
@@ -215,28 +197,32 @@ def save_user_email(user_id: int, email: str):
     """Сохраняет email пользователя в таблицу users"""
     conn = sqlite3.connect("database/land_course.db")
     cursor = conn.cursor()
-    
     try:
-        # Проверяем существование таблицы users
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            email TEXT,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            registration_date TEXT
-        )
-        """)
-        
-        # Обновляем email пользователя
-        cursor.execute("""
-        INSERT OR REPLACE INTO users (user_id, email)
-        VALUES (?, ?)
-        """, (user_id, email))
-        
+        UPDATE users SET email = ?
+        WHERE user_id = ?
+        """, (email, user_id))
+        # Если пользователь не существует, создаём запись
+        if cursor.rowcount == 0:
+            cursor.execute("""
+            INSERT INTO users (user_id, email, registration_date, registration_timestamp)
+            VALUES (?, ?, ?, ?)
+            """, (
+                user_id, email,
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                int(time.time())
+            ))
         conn.commit()
     except Exception as e:
         print(f"Ошибка при сохранении email: {e}")
     finally:
         conn.close()
+
+def get_user_invite_link(user_id: int) -> str:
+    """Получить инвайт-ссылку пользователя из базы данных"""
+    conn = sqlite3.connect("database/land_course.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT invite_link FROM user_links WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] else None
