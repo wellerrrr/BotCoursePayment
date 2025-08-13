@@ -187,18 +187,8 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
     msg_text = msg_data[2]
     await callback.answer()
 
-    # Получаем результат создания платежа
-    payment_result = await create_yookassa_payment(callback.message.from_user.id, get_user_email(callback.from_user.id))
+    await create_yookassa_payment(callback.message.from_user.id, get_user_email(callback.from_user.id))
     
-    # Проверяем, что результат не None
-    if payment_result is None:
-        await callback.message.answer("Ошибка при создании платежа. Попробуйте позже.")
-        return
-
-    # Распаковываем результат
-    payment_url, payment_id = payment_result
-    
-    await callback.message.answer(f"{payment_url}\n{payment_id}")
     
     await callback.message.answer(
         text=msg_text,

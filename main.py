@@ -63,7 +63,6 @@ async def main():
 if __name__ == '__main__':
     try:
         logger.info("Запускаем бот")
-        web.run_app(app, port=3000)
         asyncio.run(main())
     except KeyboardInterrupt as e:
         print('Бот выключен!')

@@ -41,10 +41,11 @@ def init_db():
         payment_timestamp INTEGER,
         payment_date TEXT,
         payment_method TEXT,
+        payment_status TEXT NOT NULL,
         PRIMARY KEY (user_id, payment_id)
     )''')
 
-    
+        
     # Добавляем колонку created_date если её нет
     cursor.execute("PRAGMA table_info(user_links)")
     columns = [column[1] for column in cursor.fetchall()]
@@ -143,6 +144,24 @@ def save_yookassa_payment(user_id: int, payment):
     
     conn.commit()
     conn.close()
+
+def save_payment(user_id: int, payment_id: str, amount: int, currency: str, status: str, invite_link: str = None):
+    """Сохраняет платеж в базу данных"""
+    conn = sqlite3.connect("database/land_course.db")
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+        INSERT OR REPLACE INTO payments 
+        (user_id, payment_id, amount, currency, status, invite_link) 
+        VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, payment_id, amount, currency, status, invite_link))
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Ошибка сохранения платежа: {e}")
+    finally:
+        conn.close()
 
 def has_payment(user_id: int) -> bool:
     """Проверяет наличие успешного платежа в БД"""
