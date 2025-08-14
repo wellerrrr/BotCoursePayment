@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 .venv
 *.db
-*.sqlite
 course-bot.tar
 /land_course.db
 *.swp 
