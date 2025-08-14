@@ -207,7 +207,6 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
         try:
             member = await bot.get_chat_member(chat_id, user_id)
             if member.status in ["member", "administrator", "creator"]:
-                # Показываем кнопку, которая вызывает join request (без url)
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")],
                     [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
@@ -218,8 +217,9 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
                     reply_markup=keyboard
                 )
                 return
-        except Exception:
-            pass  # Если не удалось проверить, продолжаем как обычно
+        except Exception as e:
+            logger.error(f"Error checking member status: {e}")
+            pass
 
         invite_link = get_user_invite_link(user_id)
         if not invite_link:
@@ -239,7 +239,16 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
     # Если оплаты нет - продолжаем стандартный процесс покупки
     msg_data = get_message_by_title("Купить")
     msg_text = msg_data[2]
-    await bot.send_message('admin', f"Пользователь {user_id} нажал 'Купить'")
+
+    # Отправляем уведомление админам
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(
+                chat_id=admin_id, 
+                text=f"👤 Пользователь {user_id} начал процесс покупки"
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     await callback.message.answer(
         text=msg_text,
@@ -405,38 +414,58 @@ async def process_payment(user_id: int, email: str, message: Message, state: FSM
             [InlineKeyboardButton(text="Проверить оплату", callback_data="check_payment")]
         ])
         
-        await message.answer("""Остался всего один шаг. Сделайте его и начните зарабатывать на земле.
+        await message.answer(
+            """Остался всего один шаг. Сделайте его и начните зарабатывать на земле.
 
-Стоимость доступа: 1 рубль
+Стоимость доступа: 1 рубль
 
-Нажмите «Оплатить на сайте ЮKassa», чтобы получить пошаговый план по покупке Ваших первых участков!""", reply_markup=pay_button)
+Нажмите «Оплатить на сайте ЮKassa», чтобы получить пошаговый план по покупке Ваших первых участков!
+
+⏳ Бот автоматически проверит статус оплаты через несколько секунд...""",
+            reply_markup=pay_button
+        )
+        
+        # Запускаем автоматическую проверку платежа
+        asyncio.create_task(auto_check_payment(payment_id, user_id, message, bot))
     else:
         await message.answer("Ошибка при создании платежа")
 
-@cb_handler.message(PurchaseStates.awaiting_email)
-async def process_email(message: Message, state: FSMContext, bot: Bot):
-    email = message.text.strip()
+async def auto_check_payment(payment_id: str, user_id: int, message: Message, bot: Bot):
+    """Автоматическая проверка статуса платежа"""
+    max_attempts = 20  # Максимальное количество попыток
+    delay = 15  # Задержка между попытками в секундах
+    chat_id = "-1002597950609"
     
-    # Валидация email
-    if not validate_email(email):
-        await message.answer("❌ Пожалуйста, введите корректный email (например: example@mail.ru):")
-        return
-    
-    # Сохраняем email
-    save_user_email(message.from_user.id, email)
-    
-    # Получаем контекст
-    state_data = await state.get_data()
-    callback_message = state_data.get("callback_message")
-    
-    # Если перешли из обработчика proceed_to_payment
-    if state_data.get("from_proceed_to_payment"):
-        await process_payment(message.from_user.id, email, callback_message or message, state, bot)
-    else:
-        await message.answer(f"✅ Email {email} сохранен. Теперь вы можете продолжить покупку.")
-    
-    await state.clear()
+    for _ in range(max_attempts):
+        await asyncio.sleep(delay)
+        try:
+            if has_payment(user_id):  # Сначала проверяем БД
+                break
 
+            payment = Payment.find_one(payment_id)
+            if payment.status == 'succeeded':
+                # Сохраняем платёж в БД
+                save_yookassa_payment(user_id, payment)
+                
+                # Отправляем сообщение с кнопкой доступа
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")]
+                ])
+                await message.answer(
+                    "✅ Оплата успешно получена! Нажмите кнопку ниже для входа в канал:",
+                    reply_markup=keyboard
+                )
+                return
+            
+            elif payment.status in ['canceled', 'refunded']:
+                await message.answer("❌ Платёж был отменен или возвращен")
+                return
+                
+        except Exception as e:
+            logger.error(f"Ошибка при проверке платежа: {e}")
+            continue
+
+# ...existing code...
 
 @cb_handler.callback_query(F.data == 'consent_data')
 async def consent_data(callback: CallbackQuery, state: FSMContext):
