@@ -2,19 +2,14 @@ from datetime import datetime
 import time
 import mysql.connector
 from aiogram import types
+import logging
 
-# Настройки подключения к MySQL
-MYSQL_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': 'root',
-    'password': '24745500800Max!',
-    'database': 'land_course',
-    'autocommit': True
-}
+from config import config
+
+logger = logging.getLogger(__name__)
 
 def get_mysql_conn():
-    return mysql.connector.connect(**MYSQL_CONFIG)
+    return mysql.connector.connect(**config.MYSQL_CONFIG)
 
 def init_db():
     conn = get_mysql_conn()
@@ -116,27 +111,54 @@ def check_consent(user_id: int):
     return result if result else (False, False)
 
 def save_yookassa_payment(user_id: int, payment):
+    """Сохраняет детальную информацию о платеже"""
     conn = get_mysql_conn()
     cursor = conn.cursor()
     payment_timestamp = int(time.time())
     amount = float(payment.amount.value)
-    cursor.execute("""
-        INSERT INTO payments 
-        (user_id, payment_id, amount, currency, payment_date, 
-         payment_timestamp, payment_method, payment_status) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE payment_status=VALUES(payment_status)
-    """, (
-        user_id, 
-        payment.id, 
-        amount,
-        payment.amount.currency,
-        datetime.fromtimestamp(payment_timestamp).strftime('%Y-%m-%d %H:%M:%S'),
-        payment_timestamp,
-        getattr(payment.payment_method, 'type', "unknown"),
-        payment.status
-    ))
-    conn.close()
+    
+    try:
+        payment_method = getattr(payment.payment_method, 'type', 'unknown')
+        payment_method_details = {}
+        
+        # Сохраняем детали способа оплаты
+        if payment.payment_method:
+            if payment_method == 'bank_card':
+                payment_method_details = {
+                    'card_type': getattr(payment.payment_method, 'card', {}).get('card_type', ''),
+                    'last4': getattr(payment.payment_method, 'card', {}).get('last4', '')
+                }
+            elif payment_method == 'yoo_money':
+                payment_method_details['account_number'] = getattr(payment.payment_method, 'account_number', '')
+        
+        cursor.execute("""
+            INSERT INTO payments 
+            (user_id, payment_id, amount, currency, payment_date, 
+             payment_timestamp, payment_method, payment_status) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                payment_status=VALUES(payment_status),
+                payment_method=VALUES(payment_method),
+                amount=VALUES(amount),
+                payment_timestamp=VALUES(payment_timestamp),
+                payment_date=VALUES(payment_date)
+        """, (
+            user_id, 
+            payment.id, 
+            amount,
+            payment.amount.currency,
+            datetime.fromtimestamp(payment_timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+            payment_timestamp,
+            payment_method,
+            payment.status
+        ))
+        conn.commit()
+        
+    except Exception as e:
+        logger.error(f"Error saving payment: {e}")
+        raise
+    finally:
+        conn.close()
 
 def has_payment(user_id: int) -> bool:
     conn = get_mysql_conn()

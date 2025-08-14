@@ -5,8 +5,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from keyboards import inline
 from services.reviews import ReviewService
-from services.purchasing import (save_consent, save_invite_link, has_payment,
-                                 save_yookassa_payment, get_user_email, save_user_email, validate_email)
+from services.purchasing import (save_consent, save_invite_link, get_user_invite_link, save_yookassa_payment, has_payment,
+                                 check_consent, get_user_email, save_user_email, validate_email)
 from services.purchasing import get_user_invite_link
 from services.commands import get_all_messages, is_admin, get_message_by_title
 from config import config
@@ -115,12 +115,18 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
     user_id = callback.from_user.id
     chat_id = "-1002597950609"
+    invite_link = get_user_invite_link(user_id)
     
     # Сначала проверяем БД
     if has_payment(user_id):
-        # Вместо генерации новой ссылки — даём универсальную кнопку для входа в канал
+        # Проверяем, что ссылка валидная
+        if not invite_link or not isinstance(invite_link, str) or not invite_link.startswith("http"):
+            await callback.message.answer(
+                "❌ Не удалось получить вашу ссылку для входа в канал. Обратитесь в поддержку."
+            )
+            return
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")]
+            [InlineKeyboardButton(text="Перейти в канал", url=invite_link)]
         ])
         await callback.message.answer(
             "✅ Оплата подтверждена! Используйте кнопку ниже для входа в канал.",
@@ -143,7 +149,7 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 save_yookassa_payment(user_id, payment)
             # После успешной оплаты — также даём универсальную кнопку
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")]
+                [InlineKeyboardButton(text="Перейти в канал", url=invite_link)]
             ])
             await callback.message.answer(
                 "✅ Оплата подтверждена! Используйте кнопку ниже для входа в канал.",
@@ -204,37 +210,50 @@ async def handler_buy(callback: CallbackQuery, state: FSMContext, bot: Bot):
     # Проверяем, есть ли уже оплата
     if has_payment(user_id):
         chat_id = "-1002597950609"
+        invite_link = get_user_invite_link(user_id)
+
+        if not invite_link:
+            await send_invite_link(callback.message, user_id, bot)
+            return
         try:
             member = await bot.get_chat_member(chat_id, user_id)
             if member.status in ["member", "administrator", "creator"]:
+                # Пользователь в канале — публичная ссылка
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")],
-                    [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
+                    [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")],
                 ])
                 await callback.message.answer(
                     "✅ У вас уже есть доступ к каналу и вы уже в нём состоите!\n"
-                    "Если вы вышли из канала — используйте кнопку ниже для повторного входа.",
+                    "Если вы состоите в канале, но не можете его найти — используйте индивидуальную ссылку ниже для повторного входа.",
+                    reply_markup=keyboard
+                )
+                return
+            else:
+                # Пользователь не в канале — индивидуальная ссылка из БД
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Перейти в канал", url=invite_link)],
+                    [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
+                ])
+                await callback.message.answer(
+                    "✅ У вас уже есть доступ к каналу с курсом!\n"
+                    "Вы не состоите в канале. Используйте индивидуальную ссылку ниже для входа:",
                     reply_markup=keyboard
                 )
                 return
         except Exception as e:
             logger.error(f"Error checking member status: {e}")
-            pass
-
-        invite_link = get_user_invite_link(user_id)
-        if not invite_link:
-            # Если ссылки нет в БД, генерируем новую
-            await send_invite_link(callback.message, user_id, bot)
+            # Если не удалось проверить статус — даём индивидуальную ссылку
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Перейти в канал", url=invite_link)],
+                [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
+            ])
+            await callback.message.answer(
+                "✅ У вас уже есть доступ к каналу с курсом!\n"
+                "Используйте индивидуальную ссылку ниже для входа:",
+                reply_markup=keyboard
+            )
             return
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в канал", url=invite_link)],
-            [InlineKeyboardButton(text="Назад", callback_data="back_to_menu")]
-        ])
-        await callback.message.answer(
-            "✅ У вас уже есть доступ к каналу с курсом!\nИспользуйте кнопку ниже, чтобы перейти:",
-            reply_markup=keyboard
-        )
-        return
 
     # Если оплаты нет - продолжаем стандартный процесс покупки
     msg_data = get_message_by_title("Купить")
@@ -387,16 +406,43 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext, bot: Bo
     email = get_user_email(user_id)
     if not email:
         # Если email нет - запрашиваем
-        await callback.message.answer("Пожалуйста, укажите ваш email для отправки чека:")
-        await state.set_state(PurchaseStates.awaiting_email)
-        await state.update_data(
-            callback_message=callback.message,
-            from_proceed_to_payment=True  # Флаг, что перешли из этого обработчика
+        await callback.message.answer(
+            "📧 Для продолжения покупки и получения чека, пожалуйста, укажите ваш email:"
         )
+        await state.set_state(PurchaseStates.awaiting_email)
+        await state.update_data(callback_message=callback.message)
         return
     
     # Если email есть - сразу создаем платеж
     await process_payment(user_id, email, callback.message, state, bot)
+
+@cb_handler.message(PurchaseStates.awaiting_email)
+async def process_email(message: Message, state: FSMContext, bot: Bot):
+    email = message.text.strip()
+    user_id = message.from_user.id
+    
+    if not validate_email(email):
+        await message.answer("❌ Некорректный email. Пожалуйста, введите правильный email адрес.")
+        return
+
+    # Сохраняем email в БД
+    try:
+        save_user_email(user_id, email)
+        
+        # Создаем платеж
+        state_data = await state.get_data()
+        callback_message = state_data.get('callback_message')
+        
+        if callback_message:
+            await process_payment(user_id, email, callback_message, state, bot)
+            await state.clear()
+        else:
+            await message.answer("❌ Ошибка при создании платежа. Попробуйте позже или обратитесь в поддержку.")
+            
+    except Exception as e:
+        logger.error(f"Error saving email: {e}")
+        await message.answer("❌ Произошла ошибка при сохранении email. Пожалуйста, попробуйте позже.")
+        return
 
 async def process_payment(user_id: int, email: str, message: Message, state: FSMContext, bot: Bot):
     """Создание платежа без сохранения в БД"""
@@ -435,6 +481,7 @@ async def auto_check_payment(payment_id: str, user_id: int, message: Message, bo
     max_attempts = 20  # Максимальное количество попыток
     delay = 15  # Задержка между попытками в секундах
     chat_id = "-1002597950609"
+    invite_link = get_user_invite_link(user_id)
     
     for _ in range(max_attempts):
         await asyncio.sleep(delay)
@@ -449,7 +496,7 @@ async def auto_check_payment(payment_id: str, user_id: int, message: Message, bo
                 
                 # Отправляем сообщение с кнопкой доступа
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Перейти в канал", url=f"https://t.me/c/{chat_id[4:]}/1")]
+                    [InlineKeyboardButton(text="Перейти в канал", url=invite_link)]
                 ])
                 await message.answer(
                     "✅ Оплата успешно получена! Нажмите кнопку ниже для входа в канал:",
@@ -464,8 +511,6 @@ async def auto_check_payment(payment_id: str, user_id: int, message: Message, bo
         except Exception as e:
             logger.error(f"Ошибка при проверке платежа: {e}")
             continue
-
-# ...existing code...
 
 @cb_handler.callback_query(F.data == 'consent_data')
 async def consent_data(callback: CallbackQuery, state: FSMContext):
@@ -609,3 +654,11 @@ async def handler_back_to_menu(callback: CallbackQuery, bot: Bot, state: FSMCont
         msg_text,
         reply_markup=inline.get_start_keyboard(),
     )
+
+@cb_handler.callback_query(F.data == "delete_invite_button")
+async def delete_invite_button(callback: CallbackQuery):
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.error(f"Ошибка при удалении сообщения с кнопкой: {e}")
