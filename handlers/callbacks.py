@@ -115,16 +115,15 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
     user_id = callback.from_user.id
     chat_id = "-1002597950609"
-    invite_link = get_user_invite_link(user_id)
-    
     # Сначала проверяем БД
     if has_payment(user_id):
+        invite_link = get_user_invite_link(user_id)
         # Проверяем, что ссылка валидная
         if not invite_link or not isinstance(invite_link, str) or not invite_link.startswith("http"):
-            await callback.message.answer(
-                "❌ Не удалось получить вашу ссылку для входа в канал. Обратитесь в поддержку."
-            )
+            # Если ссылка невалидна, генерируем новую
+            await send_invite_link(callback.message, user_id, bot)
             return
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Перейти в канал", url=invite_link)]
         ])
@@ -133,7 +132,7 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
             reply_markup=keyboard
         )
         return
-        
+
     # Если в БД нет, проверяем через ЮKassa
     payment_id = data.get('yookassa_payment_id')
     if not payment_id:
@@ -143,18 +142,13 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
     try:
         payment = Payment.find_one(payment_id)
         status = get_russian_status(payment.status)
-        
+
         if payment.status == 'succeeded':
             if not has_payment(user_id):
                 save_yookassa_payment(user_id, payment)
-            # После успешной оплаты — также даём универсальную кнопку
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Перейти в канал", url=invite_link)]
-            ])
-            await callback.message.answer(
-                "✅ Оплата подтверждена! Используйте кнопку ниже для входа в канал.",
-                reply_markup=keyboard
-            )
+            
+            # Отправляем инвайт-ссылку
+            await send_invite_link(callback.message, user_id, bot)
         else:
             await callback.message.answer(f'⌛ Платеж {status}. Пожалуйста, подождите...')
             
@@ -480,29 +474,23 @@ async def auto_check_payment(payment_id: str, user_id: int, message: Message, bo
     """Автоматическая проверка статуса платежа"""
     max_attempts = 20  # Максимальное количество попыток
     delay = 15  # Задержка между попытками в секундах
-    chat_id = "-1002597950609"
-    invite_link = get_user_invite_link(user_id)
-    
+
     for _ in range(max_attempts):
         await asyncio.sleep(delay)
         try:
-            if has_payment(user_id):  # Сначала проверяем БД
-                break
+            # Проверяем, не прошел ли уже платеж
+            if has_payment(user_id):
+                # Если платеж уже зарегистрирован, прекращаем проверку
+                return
 
             payment = Payment.find_one(payment_id)
             if payment.status == 'succeeded':
                 # Сохраняем платёж в БД
                 save_yookassa_payment(user_id, payment)
                 
-                # Отправляем сообщение с кнопкой доступа
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Перейти в канал", url=invite_link)]
-                ])
-                await message.answer(
-                    "✅ Оплата успешно получена! Нажмите кнопку ниже для входа в канал:",
-                    reply_markup=keyboard
-                )
-                return
+                # Отправляем инвайт-ссылку
+                await send_invite_link(message, user_id, bot)
+                return # Завершаем проверку после успешной отправки
             
             elif payment.status in ['canceled', 'refunded']:
                 await message.answer("❌ Платёж был отменен или возвращен")

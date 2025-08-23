@@ -72,5 +72,3 @@ def is_admin(user_id: int) -> bool:
     is_admin_user = user_id in config.ADMIN_IDS
     logging.debug(f"Проверка админа: user_id={user_id}, is_admin={is_admin_user}")
     return is_admin_user
-
-# Убедитесь, что нигде нет sqlite3 и database/land_course.db
