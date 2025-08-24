@@ -118,19 +118,10 @@ def save_yookassa_payment(user_id: int, payment):
     amount = float(payment.amount.value)
     
     try:
-        payment_method = getattr(payment.payment_method, 'type', 'unknown')
-        payment_method_details = {}
-        
-        # Сохраняем детали способа оплаты
+        payment_method_type = 'unknown'
         if payment.payment_method:
-            if payment_method == 'bank_card':
-                payment_method_details = {
-                    'card_type': getattr(payment.payment_method, 'card', {}).get('card_type', ''),
-                    'last4': getattr(payment.payment_method, 'card', {}).get('last4', '')
-                }
-            elif payment_method == 'yoo_money':
-                payment_method_details['account_number'] = getattr(payment.payment_method, 'account_number', '')
-        
+            payment_method_type = payment.payment_method.type
+
         cursor.execute("""
             INSERT INTO payments 
             (user_id, payment_id, amount, currency, payment_date, 
@@ -149,7 +140,7 @@ def save_yookassa_payment(user_id: int, payment):
             payment.amount.currency,
             datetime.fromtimestamp(payment_timestamp).strftime('%Y-%m-%d %H:%M:%S'),
             payment_timestamp,
-            payment_method,
+            payment_method_type,
             payment.status
         ))
         conn.commit()
