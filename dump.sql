@@ -54,9 +54,6 @@ CREATE TABLE users (
     registration_timestamp BIGINT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO users VALUES
-(820368286,'Trustmemate','Mate',NULL,NULL,'2025-08-13 17:10:05',1755094205);
-
 DROP TABLE IF EXISTS user_links;
 CREATE TABLE user_links (
     user_id BIGINT PRIMARY KEY,
@@ -77,9 +74,3 @@ CREATE TABLE payments (
     payment_status VARCHAR(50) NOT NULL,
     PRIMARY KEY (user_id, payment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-INSERT INTO payments VALUES
-(123456789,'test_payment_123',1000.0,'RUB',1755162819,'2025-08-14 12:13:39','unknown','succeeded'),
-(123456891,'test_payment_12',1000.0,'RUB',1755163307,'2025-08-14 12:21:47','unknown','succeeded');
-
-COMMIT;

@@ -7,5 +7,4 @@ course-bot.tar
 /land_course.db
 *.swp 
 venv/
-.dump.sql
-.ngrok.exe
+dump.sql
