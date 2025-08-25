@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # Сервис №1: База данных MySQL
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      # Переменные для создания БД и пользователя внутри контейнера
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      # Сохраняет данные БД даже после удаления контейнера
+      - db_data:/var/lib/mysql
+      # Загружает ваш дамп при первом запуске для создания таблиц
+      - ./dump.sql:/docker-entrypoint-initdb.d/dump.sql
+    networks:
+      - bot-network
+
+  # Сервис №2: Ваш бот
+  bot:
+    build: .
+    container_name: telegram_bot
+    restart: always
+    # Гарантирует, что бот запустится только ПОСЛЕ того, как запустится база данных
+    depends_on:
+      - db
+    env_file: .env
+    # Помещает оба контейнера в одну сеть, чтобы они могли "видеть" друг друга
+    networks:
+      - bot-network
+
+volumes:
+  # Определяет том для хранения данных БД
+  db_data:
+
+networks:
+  # Определяет общую сеть для контейнеров
+  bot-network:
+    driver: bridge
