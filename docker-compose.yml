@@ -10,8 +10,6 @@ services:
       # Переменные для создания БД и пользователя внутри контейнера
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       # Сохраняет данные БД даже после удаления контейнера
       - db_data:/var/lib/mysql
